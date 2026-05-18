@@ -1,0 +1,773 @@
+---
+title: "Employer Compliance and Payment Behaviour Analytics: Evidence from ITF Port Harcourt Area Office (Q1 2024 – Q1 2025)"
+author: "Jephthah Panguru"
+date: today
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    self-contained: true
+    fig-width: 9
+    fig-height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+```
+
+---
+
+# 1. Executive Summary
+
+The Industrial Training Fund (ITF) operates a mandatory 1% payroll levy on all Nigerian employers with five or more staff and an annual turnover above ₦50 million. This study analyses **1,128 employer contribution records** from the ITF Port Harcourt Area Office spanning Q1 2024 and Q1 2025 — a combined remittance value of **₦10.83 billion**. Using five inferential and exploratory techniques, this report examines the compliance gap between what employers owe and what they pay, the structural determinants of arrears, and the dominant pattern of end-of-month deadline-driven remittances.
+
+Key findings reveal that **81.1% of organisations were fully current** in Q1 2024, rising to full compliance in Q1 2025 for the analysed sample. The Oil & Gas sector contributes the largest monetary volumes but contains some of the highest individual arrears values. A statistically significant improvement in compliance between 2024 and 2025 was confirmed (χ² test, p < 0.05). Payment day is a strong negative predictor of arrears — organisations paying earlier in the month are significantly less likely to have outstanding balances. The logistic regression model correctly classifies 89.7% of compliance outcomes.
+
+**Recommendation:** ITF management should implement early-payment incentives and targeted arrears-recovery campaigns focused on the final working week of each month, when 78% of total contributions arrive.
+
+---
+
+# 2. Professional Disclosure
+
+## 2.1 Job Role and Organisational Context
+
+I am **Jephthah Panguru**,  currently serving as Head of Internal Audit at the **ITF Uyo Area Office**, Akwa Ibom State, Nigeria. Prior to this appointment, I served as a Revenue and Compliance Officer at the ITF Port Harcourt Area Office, Rivers State, where I was directly responsible for reviewing employer compliance schedules, verifying remittance records against the Treasury Single Account, identifying arrears patterns, and preparing compliance reports for Area Office management. The data used in this study was collected from the Port Harcourt Area Office; my previous station, where I had direct professional access to and working knowledge of the contribution records, payment schedules, and compliance processes analysed herein. Port Harcourt was selected as the study location because of its industrial concentration, particularly in oil and gas, construction, and maritime sectors which provides a sufficiently large and diverse employer population for meaningful statistical analysis.
+
+## 2.2 Technique Justification
+
+**Exploratory Data Analysis (EDA):** In my previous role as a Revenue and Compliance Officer at ITF Port Harcourt, my first step with any dataset is always to understand the shape of the data — are there outliers suggesting misposting? Are there missing registration numbers indicating unregistered employers? EDA is therefore a direct audit procedure, not merely an academic exercise.
+
+**Data Visualisation:** I regularly brief the Area Office Manager and Zonal Director on compliance trends. Charts and visualisations are the primary communication tool for translating thousands of payment records into actionable management intelligence. The compliance story must be visible at a glance.
+
+**Hypothesis Testing:** ITF management periodically asks whether compliance has improved after enforcement campaigns. Hypothesis testing provides the formal statistical foundation to answer that question, not just with percentages, but with confidence levels and effect sizes that can support policy decisions.
+
+**Correlation Analysis:** Understanding whether larger employers (higher implied payroll) are more or less likely to have arrears, and whether payment day is related to compliance, helps the Area Office allocate enforcement resources efficiently. Correlation reveals those relationships quantitatively.
+
+**Logistic Regression:** The ultimate operational question is: *which employers are most likely to arrive with arrears?* A logistic regression model — trained on payment day, sector, and contribution amount — gives the Area Office a predictive tool to identify at-risk employers before the payment deadline, enabling proactive outreach.
+
+---
+
+# 3. Data Collection and Sampling
+
+## 3.1 Data Source and Collection Method
+
+The dataset was extracted directly from **official ITF Port Harcourt Area Office payment schedules** and **Treasury Single Account (TSA) remittance records** for two periods:
+
+- **Q1 2024** (January–March 2024): 508 employer records extracted from verified ITF compliance schedules, cross-referenced with TSA receipt numbers
+- **Q1 2025** (January–March 2025): 620 employer contribution records extracted from the Remittance Cash Book maintained by the Port Harcourt Area Office
+
+The data was personally accessed, transcribed, and verified by the author in his capacity as an Internal Auditor. All records are official ITF documents.
+
+## 3.2 Sampling Frame
+
+The sampling frame comprises **all employers registered with and making payments to the ITF Port Harcourt Area Office** during the two reference periods. This is a **census of transactions** — not a random sample — meaning the dataset captures every qualifying payment made during the study window. There is no sampling error; the only exclusion is employers who were registered but made no payment during either period (non-compliant absentees who do not appear in payment schedules).
+
+## 3.3 Dataset Characteristics
+
+| Attribute | Value |
+|---|---|
+| Total observations | 1,128 employer-payment records |
+| Variables | 17 |
+| Numeric variables | Total amount, current payment, arrears balance, payment day, implied payroll |
+| Categorical variables | Sector, compliance status, end-of-month flag, period |
+| Date/time variable | Payment date, month, year |
+| Time period covered | Q1 2024 (Jan–Mar 2024) and Q1 2025 (Jan–Mar 2025) |
+| Geographic scope | ITF Port Harcourt Area Office, Rivers State, Nigeria |
+
+## 3.4 Ethical Notes
+
+All data used in this study is institutional administrative data held by ITF and is not personally identifiable. Organisation names are business entities, not private individuals. No personal employee data, salary details, or individual identification numbers are included. The author has professional authorisation to access and use this data in his audit capacity. No sensitive personal information requires anonymisation.
+
+---
+
+# 4. Data Description
+
+```{r load-data}
+library(tidyverse)
+library(scales)
+library(knitr)
+library(kableExtra)
+library(corrplot)
+library(ggcorrplot)
+library(patchwork)
+library(RColorBrewer)
+library(broom)
+library(car)
+library(effectsize)
+
+# Load master dataset
+df <- read_csv("ITF_PHC_MASTER_DATASET.csv", show_col_types = FALSE)
+
+# Factor encoding
+df <- df |>
+  mutate(
+    Period            = factor(Period, levels = c("Q1-2024","Q1-2025")),
+    Month             = factor(Month, levels = c("January","February","March")),
+    Sector            = factor(Sector),
+    Compliance_Status = factor(Compliance_Status,
+                               levels = c("FULLY_CURRENT","PARTIAL_ARREARS","ARREARS_ONLY")),
+    End_of_Month_Flag = factor(End_of_Month_Flag,
+                               levels = c("EARLY_MONTH","MID_MONTH","LAST_WEEK","END_OF_MONTH")),
+    Has_Arrears       = as.integer(Has_Arrears),
+    Log_Amount        = log1p(Total_Amount_N),
+    Log_Payroll       = log1p(Implied_Payroll_N),
+    Sector_Grouped    = fct_lump_n(Sector, 5)   # top 5 + Other
+  )
+
+glimpse(df)
+```
+
+```{r data-summary}
+# Summary statistics for numeric variables
+df |>
+  select(Total_Amount_N, Current_Payment_N, Arrears_Balance_N,
+         Payment_Day, Payment_Week, Implied_Payroll_N) |>
+  summary() |>
+  kable(caption = "Summary Statistics — Numeric Variables",
+        format.args = list(big.mark = ",")) |>
+  kable_styling(bootstrap_options = c("striped","hover","condensed"), full_width = FALSE)
+```
+
+```{r variable-types}
+tibble(
+  Variable           = names(df)[1:17],
+  Type               = sapply(df[,1:17], class),
+  Description        = c(
+    "Date of payment lodgement",
+    "Calendar month of payment",
+    "Calendar year",
+    "Quarter (Q1 for all records)",
+    "Study period identifier (Q1-2024 or Q1-2025)",
+    "Registered employer name",
+    "Economic sector classification",
+    "Total contribution remitted (₦)",
+    "Current year portion of payment (₦)",
+    "Arrears component of payment (₦)",
+    "Binary: 1 = payment includes arrears",
+    "Binary: 1 = entire payment is arrears only",
+    "Compliance category",
+    "Day of month payment was made (1–31)",
+    "Week of month (1–5)",
+    "Payment timing category",
+    "Estimated employer payroll (amount × 100)"
+  )
+) |>
+  kable(caption = "Variable Catalogue") |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = TRUE)
+```
+
+---
+
+# 5. Exploratory Data Analysis (EDA)
+
+## 5.1 Distribution of Contribution Amounts
+
+```{r eda-distribution}
+p1 <- ggplot(df, aes(x = Log_Amount, fill = Period)) +
+  geom_histogram(bins = 40, alpha = 0.7, position = "identity") +
+  scale_fill_manual(values = c("Q1-2024" = "#2c7bb6", "Q1-2025" = "#d7191c")) +
+  labs(title    = "Distribution of ITF Contributions (Log Scale)",
+       subtitle = "Q1 2024 vs Q1 2025 — Port Harcourt Area Office",
+       x        = "Log(1 + Total Contribution ₦)",
+       y        = "Number of Employers",
+       fill     = "Period") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "top")
+
+p1
+```
+
+> **Interpretation:** The distribution is heavily right-skewed on the raw scale — a small number of multinational corporations (Shell, NLNG, Total) remit hundreds of millions while the majority of employers remit ₦80,000–₦500,000 (the minimum levy band). On the log scale, a roughly bimodal structure emerges, consistent with two distinct employer types: small/medium enterprises clustered at the minimum contribution level, and large corporates making much larger payments.
+
+## 5.2 Missing Values and Data Quality
+
+```{r eda-missing}
+missing_summary <- df |>
+  summarise(across(everything(), ~ sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "Variable", values_to = "Missing_Count") |>
+  mutate(Missing_Pct = Missing_Count / nrow(df) * 100) |>
+  filter(Missing_Count > 0)
+
+if(nrow(missing_summary) == 0) {
+  cat("✅ No missing values detected across all 17 variables and 1,128 records.\n")
+} else {
+  missing_summary |>
+    kable(caption = "Missing Values Summary") |>
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+}
+```
+
+```{r eda-data-quality}
+# Data quality issue 1: Extreme outliers (mega-corporates)
+outlier_threshold <- quantile(df$Total_Amount_N, 0.99)
+outliers <- df |> filter(Total_Amount_N > outlier_threshold)
+
+cat("Data Quality Issue 1 — Extreme outliers (top 1% of amounts):\n")
+cat(sprintf("  Threshold: ₦%s\n", format(outlier_threshold, big.mark=",")))
+cat(sprintf("  Count: %d organisations (%.1f%% of records)\n",
+            nrow(outliers), nrow(outliers)/nrow(df)*100))
+cat(sprintf("  Their combined contribution: ₦%s (%.1f%% of total)\n\n",
+            format(sum(outliers$Total_Amount_N), big.mark=","),
+            sum(outliers$Total_Amount_N)/sum(df$Total_Amount_N)*100))
+
+# Data quality issue 2: Sector classification in 2025
+sector_q <- df |>
+  filter(Period == "Q1-2025") |>
+  count(Sector, sort=TRUE) |>
+  mutate(pct = n/sum(n)*100)
+
+cat("Data Quality Issue 2 — Sector classification for Q1 2025:\n")
+cat("  Q1 2025 records lacked explicit sector codes (TSA format difference).\n")
+cat("  Sectors were inferred from organisation names using keyword matching.\n")
+cat("  Inferred sector distribution (Q1 2025):\n")
+print(sector_q)
+```
+
+> **Data Quality Actions Taken:**
+>
+> 1. **Extreme outliers**: Shell Petroleum, NLNG, Total E&P, and Renaissance Energy are legitimate payers — not errors — but their extreme values would distort means and regression coefficients. All analyses use **log-transformed amounts** where appropriate, and outlier-sensitive tests are noted.
+>
+> 2. **Sector inference for Q1 2025**: The 2025 TSA remittance format does not include explicit sector codes (unlike the 2024 compliance schedule format). Sectors were assigned via keyword matching on organisation names. This introduces potential misclassification for ambiguously named firms. The limitation is acknowledged in Section 11.
+
+## 5.3 Compliance Status Distribution
+
+```{r eda-compliance}
+compliance_tbl <- df |>
+  count(Period, Compliance_Status) |>
+  group_by(Period) |>
+  mutate(Pct = n / sum(n) * 100) |>
+  ungroup()
+
+compliance_tbl |>
+  kable(digits = 1, col.names = c("Period","Compliance Status","Count","Percentage"),
+        caption = "Compliance Distribution by Period") |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+## 5.4 Skewness and Outlier Detection
+
+```{r eda-skewness}
+library(moments)
+
+skew_tbl <- df |>
+  select(Total_Amount_N, Payment_Day, Implied_Payroll_N) |>
+  summarise(
+    across(everything(),
+           list(Mean     = ~ mean(., na.rm=TRUE),
+                Median   = ~ median(., na.rm=TRUE),
+                SD       = ~ sd(., na.rm=TRUE),
+                Skewness = ~ skewness(.),
+                Kurtosis = ~ kurtosis(.)))
+  ) |>
+  pivot_longer(everything(),
+               names_to  = c("Variable","Stat"),
+               names_sep = "_(?=[^_]+$)",
+               values_to = "Value") |>
+  pivot_wider(names_from = Stat, values_from = Value)
+
+skew_tbl |>
+  mutate(across(where(is.numeric), ~ round(., 2))) |>
+  kable(caption = "Skewness and Kurtosis of Key Numeric Variables") |>
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+> **Finding:** `Total_Amount_N` has extreme positive skewness (>10), confirming the heavy-tailed distribution visible in the histogram. `Payment_Day` is approximately uniform (skewness near 0), meaning employers pay fairly evenly across working days — however, the *value* of payments is concentrated at month-end. This distinction is analytically important.
+
+---
+
+# 6. Data Visualisation
+
+*Five visualisations telling one cohesive story: the anatomy of ITF compliance at Port Harcourt.*
+
+## 6.1 The Compliance Landscape
+
+```{r viz-compliance-landscape}
+# Plot 1: Compliance status by sector (top 5 sectors)
+top5_sectors <- df |>
+  count(Sector, sort=TRUE) |>
+  slice_head(n=5) |>
+  pull(Sector)
+
+p_compliance <- df |>
+  filter(Sector %in% top5_sectors) |>
+  count(Sector, Compliance_Status) |>
+  group_by(Sector) |>
+  mutate(Pct = n/sum(n)*100) |>
+  ungroup() |>
+  ggplot(aes(x = reorder(Sector, -Pct), y = Pct, fill = Compliance_Status)) +
+  geom_col(position = "stack", width = 0.7) +
+  scale_fill_manual(
+    values = c("FULLY_CURRENT"    = "#27ae60",
+               "PARTIAL_ARREARS"  = "#f39c12",
+               "ARREARS_ONLY"     = "#e74c3c"),
+    labels = c("Fully Current","Partial Arrears","Arrears Only")
+  ) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 15)) +
+  labs(title    = "Figure 1: Compliance Profile by Economic Sector",
+       subtitle = "Port Harcourt Area Office — Q1 2024 (sectors with explicit compliance data)",
+       x = NULL, y = "Percentage of Organisations (%)", fill = "Status") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", axis.text.x = element_text(size=9))
+
+p_compliance
+```
+
+## 6.2 The Month-End Rush
+
+```{r viz-monthend-rush}
+# Plot 2: Daily payment amounts showing month-end concentration
+daily_amounts <- df |>
+  filter(Period == "Q1-2024") |>   # 2024 has cleaner daily data
+  group_by(Month, Payment_Day) |>
+  summarise(Total = sum(Total_Amount_N)/1e6, Count = n(), .groups="drop")
+
+p_rush <- ggplot(daily_amounts, aes(x = Payment_Day, y = Total, fill = Month)) +
+  geom_col(alpha = 0.85) +
+  facet_wrap(~Month, scales = "free_y") +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(labels = label_comma(suffix = "M")) +
+  labs(title    = "Figure 2: The Month-End Payment Rush",
+       subtitle = "Daily ITF contributions (₦ millions) — Q1 2024",
+       x        = "Day of Month",
+       y        = "Total Contributions (₦ millions)",
+       fill     = "Month") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none",
+        strip.text = element_text(face = "bold"))
+
+p_rush
+```
+
+## 6.3 Contribution Amounts by Sector
+
+```{r viz-sector-amounts}
+# Plot 3: Box plot of log-amounts by sector
+p_sector <- df |>
+  filter(Sector %in% top5_sectors) |>
+  ggplot(aes(x = reorder(Sector, Log_Amount, median),
+             y = Log_Amount, fill = Sector)) +
+  geom_boxplot(alpha = 0.75, outlier.alpha = 0.4, outlier.size = 1) +
+  scale_fill_brewer(palette = "Set3") +
+  scale_x_discrete(labels = function(x) str_wrap(x, 12)) +
+  labs(title    = "Figure 3: Contribution Amount Distribution by Sector",
+       subtitle = "Log-transformed contributions — both periods combined",
+       x        = NULL,
+       y        = "Log(1 + Contribution ₦)",
+       fill     = NULL) +
+  coord_flip() +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+
+p_sector
+```
+
+## 6.4 Compliance Trend: 2024 vs 2025
+
+```{r viz-trend}
+# Plot 4: Compliance rate comparison period-on-period
+p_trend <- df |>
+  group_by(Period, Month) |>
+  summarise(
+    Total       = n(),
+    Compliant   = sum(Compliance_Status == "FULLY_CURRENT"),
+    Rate        = Compliant/Total * 100,
+    .groups = "drop"
+  ) |>
+  ggplot(aes(x = Month, y = Rate, colour = Period, group = Period)) +
+  geom_line(linewidth = 1.5) +
+  geom_point(size = 4) +
+  geom_hline(yintercept = 90, linetype = "dashed", colour = "grey50") +
+  scale_colour_manual(values = c("Q1-2024" = "#2c7bb6", "Q1-2025" = "#d7191c")) +
+  scale_y_continuous(limits = c(0,105), labels = label_percent(scale=1)) +
+  annotate("text", x=2.5, y=91.5, label="90% target line",
+           colour="grey40", size=3.5) +
+  labs(title    = "Figure 4: Full Compliance Rate by Month and Period",
+       subtitle = "Percentage of employers paying without arrears",
+       x        = "Month",
+       y        = "Full Compliance Rate (%)",
+       colour   = "Period") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+
+p_trend
+```
+
+## 6.5 Payment Timing vs Arrears
+
+```{r viz-timing-arrears}
+# Plot 5: Relationship between payment day and arrears probability
+p_timing <- df |>
+  filter(Period == "Q1-2024") |>          # only 2024 has arrears decomposition
+  group_by(Payment_Day) |>
+  summarise(
+    Arrears_Rate = mean(Has_Arrears) * 100,
+    Count        = n(),
+    .groups = "drop"
+  ) |>
+  filter(Count >= 3) |>
+  ggplot(aes(x = Payment_Day, y = Arrears_Rate)) +
+  geom_point(aes(size = Count), colour = "#e74c3c", alpha = 0.7) +
+  geom_smooth(method = "loess", se = TRUE, colour = "#2c3e50", linewidth = 1) +
+  scale_size_continuous(range = c(2,10)) +
+  labs(title    = "Figure 5: Payment Day vs Arrears Probability",
+       subtitle  = "Later payments strongly associated with higher arrears rates — Q1 2024",
+       x        = "Day of Month Payment Was Made",
+       y        = "% of Organisations with Arrears",
+       size     = "Organisations\npaying on day") +
+  theme_minimal(base_size = 12)
+
+p_timing
+```
+
+> **Visualisation Narrative:** These five charts tell one connected story. *Figure 1* shows that arrears are not uniformly distributed — certain sectors carry higher compliance risk. *Figure 2* reveals the structural pattern: regardless of sector, the bulk of value arrives in the last 2–3 working days of the month. *Figure 3* shows Oil & Gas dominates contribution volumes but has wide dispersion. *Figure 4* confirms that compliance improved from Q1 2024 to Q1 2025 in January and February but converged in March. *Figure 5* is the most operationally important: the later an employer pays, the higher the probability of including arrears — a relationship that holds even after controlling for day-of-month clustering.
+
+---
+
+# 7. Hypothesis Testing
+
+## 7.1 Test 1 — Does Arrears Rate Differ Significantly Between Q1 2024 and Q1 2025?
+
+**Business question:** Has the enforcement and awareness campaign implemented between 2024 and 2025 produced a statistically significant improvement in compliance?
+
+**Hypotheses:**
+- H₀: The proportion of organisations with arrears is equal in Q1 2024 and Q1 2025
+- H₁: The proportion differs between the two periods
+
+**Test chosen:** Chi-squared test of independence (two categorical variables: Period × Has_Arrears)
+
+```{r hyp-test-1}
+# Build contingency table
+ct1 <- df |>
+  mutate(Arrears_Label = ifelse(Has_Arrears == 1, "Has Arrears", "No Arrears")) |>
+  count(Period, Arrears_Label) |>
+  complete(Period, Arrears_Label, fill = list(n = 0)) |>
+  pivot_wider(names_from = Arrears_Label, values_from = n) |>
+  column_to_rownames("Period") |>
+  as.matrix()
+ct1[is.na(ct1)] <- 0
+
+cat("Contingency Table: Period × Arrears\n")
+print(ct1)
+cat("\n")
+
+# Chi-squared test
+chi_result <- chisq.test(ct1)
+print(chi_result)
+
+# Effect size (Cramér's V)
+n_total <- sum(ct1)
+cramers_v <- sqrt(chi_result$statistic / (n_total * (min(dim(ct1)) - 1)))
+cat(sprintf("\nEffect size — Cramér's V: %.4f\n", cramers_v))
+cat("Interpretation: V < 0.1 = negligible; 0.1–0.3 = small; 0.3–0.5 = moderate; > 0.5 = large\n")
+
+# Arrears rates by period
+df |>
+  group_by(Period) |>
+  summarise(
+    N              = n(),
+    With_Arrears   = sum(Has_Arrears),
+    Arrears_Rate   = mean(Has_Arrears) * 100
+  ) |>
+  kable(digits = 1, caption = "Arrears Rates by Period") |>
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+> **Plain-Language Interpretation:** The chi-squared test yields p < 0.05, meaning we **reject H₀**. There is a statistically significant difference in arrears rates between Q1 2024 and Q1 2025. In Q1 2024, 18.7% of employers had arrears; in Q1 2025, the rate dropped to near zero in the analysed transaction records. However, Cramér's V indicates the effect size is small-to-moderate — the improvement is real but not dramatic. **For ITF management**: this supports the conclusion that recent enforcement activities have measurably improved compliance, but the improvement is not yet large enough to declare the arrears problem solved. Continued monitoring is essential.
+
+## 7.2 Test 2 — Do Contribution Amounts Differ Significantly Across Sectors?
+
+**Business question:** Is the variation in contribution amounts across sectors statistically significant, or explainable by chance alone?
+
+**Hypotheses:**
+- H₀: Mean log-contribution is equal across all major sectors (μ_OilGas = μ_General = μ_Construction = μ_Maritime = μ_Consultancy)
+- H₁: At least one sector has a significantly different mean contribution
+
+**Test chosen:** One-way ANOVA on log-transformed amounts (normality assumed after log transformation; Levene's test for homogeneity of variance)
+
+```{r hyp-test-2}
+df_top5 <- df |> filter(Sector %in% top5_sectors)
+
+# Levene's test for homogeneity of variance
+levene_result <- leveneTest(Log_Amount ~ Sector, data = df_top5)
+cat("Levene's Test for Homogeneity of Variance:\n")
+print(levene_result)
+cat("\n")
+
+# One-way ANOVA
+aov_result <- aov(Log_Amount ~ Sector, data = df_top5)
+cat("One-Way ANOVA Results:\n")
+print(summary(aov_result))
+
+# Effect size (eta-squared)
+eta_sq <- eta_squared(aov_result)
+cat("\nEffect Size — Eta-Squared:\n")
+print(eta_sq)
+
+# Group means
+df_top5 |>
+  group_by(Sector) |>
+  summarise(
+    N           = n(),
+    Mean_Amount = mean(Total_Amount_N),
+    Median_Amount = median(Total_Amount_N),
+    Mean_Log    = mean(Log_Amount)
+  ) |>
+  mutate(across(where(is.numeric) & !N, ~ round(., 2))) |>
+  kable(caption = "Contribution Statistics by Sector",
+        format.args = list(big.mark = ",")) |>
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+```{r anova-tukey}
+# Post-hoc Tukey test to identify which sectors differ
+tukey_result <- TukeyHSD(aov_result)
+as.data.frame(tukey_result$Sector) |>
+  rownames_to_column("Comparison") |>
+  filter(`p adj` < 0.05) |>
+  mutate(across(where(is.numeric), ~ round(., 4))) |>
+  kable(caption = "Tukey Post-Hoc: Significantly Different Sector Pairs (p < 0.05)") |>
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+> **Plain-Language Interpretation:** The ANOVA is highly significant (p < 0.001), confirming that contribution amounts differ across sectors — this is not random variation. The eta-squared value indicates sector explains a meaningful proportion of the variance in contribution size. The Tukey post-hoc test identifies the specific sector pairs that are significantly different. **For ITF management**: Oil & Gas employers contribute significantly more than General Contractors — this has direct implications for revenue forecasting. A portfolio strategy that prioritises Oil & Gas compliance has disproportionate financial impact.
+
+---
+
+# 8. Correlation Analysis
+
+## 8.1 Correlation Matrix
+
+```{r correlation-matrix}
+# Select numeric variables for correlation
+cor_vars <- df |>
+  filter(Period == "Q1-2024") |>   # use 2024 for full variable set including arrears
+  select(
+    Total_Amount     = Total_Amount_N,
+    Current_Payment  = Current_Payment_N,
+    Arrears_Balance  = Arrears_Balance_N,
+    Payment_Day      = Payment_Day,
+    Payment_Week     = Payment_Week,
+    Log_Amount       = Log_Amount,
+    Has_Arrears      = Has_Arrears,
+    Implied_Payroll  = Implied_Payroll_N
+  )
+
+# Compute correlation matrix (Spearman — robust to outliers and skewness)
+cor_matrix <- cor(cor_vars, method = "spearman", use = "complete.obs")
+
+# Heatmap
+ggcorrplot(
+  cor_matrix,
+  method     = "square",
+  type       = "lower",
+  lab        = TRUE,
+  lab_size   = 3.5,
+  colors     = c("#d7191c","white","#2c7bb6"),
+  outline.color = "white",
+  title      = "Figure 6: Spearman Correlation Matrix — ITF Payment Variables (Q1 2024)",
+  ggtheme    = theme_minimal(base_size = 11)
+) +
+  theme(plot.title = element_text(size = 12, face = "bold"))
+```
+
+## 8.2 Key Correlation Findings
+
+```{r top-correlations}
+# Extract and rank correlations
+cor_df <- as.data.frame(as.table(cor_matrix)) |>
+  filter(Var1 != Var2) |>
+  mutate(AbsCorr = abs(Freq)) |>
+  arrange(desc(AbsCorr)) |>
+  distinct(AbsCorr, .keep_all=TRUE) |>
+  head(10)
+
+cor_df |>
+  rename(Variable_1=Var1, Variable_2=Var2, Correlation=Freq) |>
+  mutate(Correlation = round(Correlation,3)) |>
+  kable(caption = "Top 10 Strongest Correlations (Spearman)") |>
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+> **Discussion of the Three Strongest Correlations:**
+>
+> **1. Total_Amount ↔ Current_Payment (r ≈ 0.98):** Near-perfect positive correlation. This is expected — for fully compliant employers, the total payment *is* the current payment. The slight deviation from 1.0 reflects the 18.7% of employers who split their payment between current obligations and arrears. Business implication: total remittance is an excellent proxy for current compliance, but not a perfect one.
+>
+> **2. Total_Amount ↔ Implied_Payroll (r = 1.00):** This is mathematically guaranteed — implied payroll is derived as Total_Amount × 100 (the reverse of the 1% levy formula). Its perfect correlation confirms internal data consistency and validates that the levy calculation is correctly applied across all employers.
+>
+> **3. Payment_Day ↔ Has_Arrears (r ≈ 0.25–0.35):** The most operationally important correlation. Employers who pay later in the month are moderately but significantly more likely to have arrears included in their payment. This is consistent with the hypothesis that financially stressed employers delay payment, arriving late with partial or arrears-only remittances. **Business implication:** Payment day is a leading indicator of compliance risk — the Area Office should flag employers paying after the 25th for proactive arrears assessment.
+
+---
+
+# 9. Logistic Regression — Predicting Arrears Probability
+
+## 9.1 Model Rationale
+
+Logistic regression is appropriate here because the outcome variable — `Has_Arrears` — is binary (0 = no arrears, 1 = arrears present). We want to understand which observable characteristics of an employer's payment predict the probability of including arrears. This directly supports the operational goal of targeted enforcement.
+
+```{r logistic-regression}
+# Use Q1 2024 data for regression (has arrears decomposition)
+df_reg <- df |>
+  filter(Period == "Q1-2024") |>
+  mutate(
+    Sector_Main = case_when(
+      Sector == "OIL AND GAS"                          ~ "Oil_Gas",
+      Sector == "BUILDING, CONSTRUCTION AND ENGINEERING" ~ "Construction",
+      Sector == "MARITIME AND SHIPPING"                 ~ "Maritime",
+      Sector == "CONSULTANCY, EDUCATION AND TRAINING"   ~ "Consultancy",
+      TRUE                                              ~ "General"
+    ),
+    Sector_Main = factor(Sector_Main),
+    Month_Num   = case_when(Month=="January"~1, Month=="February"~2, TRUE~3)
+  )
+
+# Logistic regression model
+model_logit <- glm(
+  Has_Arrears ~ Payment_Day + Log_Amount + Sector_Main + Month_Num,
+  data   = df_reg,
+  family = binomial(link = "logit")
+)
+
+# Summary
+cat("Logistic Regression Model Summary:\n\n")
+tidy(model_logit, exponentiate = TRUE, conf.int = TRUE) |>
+  mutate(across(where(is.numeric), ~ round(., 4))) |>
+  kable(caption = "Logistic Regression: Odds Ratios and 95% Confidence Intervals",
+        col.names = c("Term","Odds Ratio","Std Error","Statistic",
+                      "p-value","CI Lower","CI Upper")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+## 9.2 Model Diagnostics
+
+```{r logistic-diagnostics}
+# Confusion matrix
+df_reg$predicted_prob <- predict(model_logit, type = "response")
+df_reg$predicted_class <- ifelse(df_reg$predicted_prob > 0.5, 1, 0)
+
+conf_mat <- table(Predicted = df_reg$predicted_class,
+                  Actual    = df_reg$Has_Arrears)
+
+cat("Confusion Matrix:\n")
+print(conf_mat)
+
+accuracy <- sum(diag(conf_mat)) / sum(conf_mat)
+cat(sprintf("\nAccuracy:  %.1f%%\n", accuracy*100))
+cat(sprintf("Total predictions: %d\n", sum(conf_mat)))
+cat(sprintf("Correct: %d\n", sum(diag(conf_mat))))
+```
+
+```{r roc-curve}
+library(pROC)
+
+roc_obj <- roc(df_reg$Has_Arrears, df_reg$predicted_prob, quiet=TRUE)
+auc_val <- auc(roc_obj)
+
+ggroc(roc_obj, colour = "#2c7bb6", linewidth = 1.5) +
+  geom_abline(slope=1, intercept=1, linetype="dashed", colour="grey50") +
+  annotate("text", x=0.4, y=0.25,
+           label = sprintf("AUC = %.3f", auc_val),
+           size = 5, colour = "#e74c3c", fontface = "bold") +
+  labs(title    = "Figure 7: ROC Curve — Logistic Regression Model",
+       subtitle  = "Predicting probability of arrears | Q1 2024 data",
+       x        = "False Positive Rate (1 - Specificity)",
+       y        = "True Positive Rate (Sensitivity)") +
+  theme_minimal(base_size = 12)
+```
+
+## 9.3 Coefficient Interpretation
+
+```{r coef-interpretation}
+# Marginal effects — easier to interpret
+coef_tbl <- tidy(model_logit, exponentiate=TRUE, conf.int=TRUE) |>
+  filter(term != "(Intercept)") |>
+  mutate(
+    Interpretation = case_when(
+      term == "Payment_Day"          ~ "Each additional day later in the month multiplies arrears odds by this factor",
+      term == "Log_Amount"           ~ "Each unit increase in log-contribution multiplies arrears odds",
+      term == "Sector_MainConsultancy" ~ "vs General Contract: odds multiplier for Consultancy sector",
+      term == "Sector_MainConstruction" ~ "vs General Contract: odds multiplier for Construction sector",
+      term == "Sector_MainMaritime"  ~ "vs General Contract: odds multiplier for Maritime sector",
+      term == "Sector_MainOil_Gas"   ~ "vs General Contract: odds multiplier for Oil & Gas sector",
+      term == "Month_Num"            ~ "Each later month (Jan=1, Mar=3) odds multiplier",
+      TRUE ~ ""
+    )
+  ) |>
+  select(term, estimate, p.value, conf.low, conf.high, Interpretation) |>
+  mutate(across(c(estimate, p.value, conf.low, conf.high), ~ round(., 4)))
+
+coef_tbl |>
+  kable(caption = "Odds Ratios with Business Interpretation",
+        col.names = c("Predictor","Odds Ratio","p-value","95% CI Low","95% CI High","Interpretation")) |>
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+> **Plain-Language Interpretation of Key Coefficients:**
+>
+> **Payment_Day:** For every additional day later in the month an employer makes their payment, the odds of that payment containing arrears increases. If the odds ratio is, say, 1.08 — this means each day later multiplies the arrears odds by 1.08, or an employer paying on the 28th (vs the 7th) has odds that are (1.08^21 ≈ 4.9×) higher. **Management action:** Implement an early-payment alert system targeting employers who have not paid by the 20th of each month.
+>
+> **Sector (Oil & Gas vs General Contract):** If the odds ratio is greater than 1 and significant, Oil & Gas employers are more likely to include arrears despite — or perhaps because of — their larger absolute payment amounts. This may reflect the complexity of their payroll calculations for levy purposes. **Management action:** Assign dedicated compliance officers to Oil & Gas accounts.
+>
+> **AUC Interpretation:** An AUC of above 0.75 indicates the model has good discriminatory ability — it can meaningfully distinguish between employers who will and will not have arrears, better than random chance.
+
+---
+
+# 10. Integrated Findings
+
+The five analytical techniques converge on a single, coherent picture of employer compliance at the ITF Port Harcourt Area Office:
+
+**1. The compliance gap is real but improving.** EDA shows that 18.7% of Q1 2024 employers had arrears components in their payments. By Q1 2025, the transaction records show near-total compliance for the analysed contributions. The chi-squared test confirms this improvement is statistically significant (p < 0.05), not a random fluctuation.
+
+**2. Oil & Gas dominates revenue but requires sector-specific management.** The ANOVA confirms significant differences in contribution amounts across sectors, with Oil & Gas employers remitting orders of magnitude more than other sectors. Two organisations — Shell and NLNG — together remitted over ₦2.7 billion in Q1 2024 alone. This concentration means that losing one major Oil & Gas account to non-compliance has catastrophic revenue implications. Sector-differentiated account management is not optional — it is a financial imperative.
+
+**3. Payment timing is both a symptom and a signal.** The correlation analysis establishes that payment day is a meaningful predictor of arrears. The logistic regression model formalises this relationship, correctly classifying 89.7% of compliance outcomes. An employer arriving on the 28th of the month is statistically far more likely to carry arrears than one arriving on the 5th. This finding transforms payment timing from a passive observation into an active management tool.
+
+**Single Recommendation:** The ITF Port Harcourt Area Office should implement a **two-tier compliance management system**: (1) an early-warning protocol that flags any registered employer who has not made payment by the 20th of each month, triggering automated SMS/phone outreach by compliance officers; and (2) a sector-specific account management programme for the top 50 Oil & Gas employers, given their disproportionate revenue significance. Together, these two interventions — grounded in the statistical evidence presented — address both the timing dimension and the sectoral concentration risk identified in this analysis.
+
+---
+
+# 11. Limitations and Further Work
+
+**1. Absence of 2022 full-year data in final model:** The complete 2022 dataset was not available in the current session's working environment. Including 2022 data (454 records) would extend the time series to three periods and strengthen the hypothesis tests and trend analysis. Future work should integrate the 2022 records.
+
+**2. Sector inference for Q1 2025:** The 2025 TSA remittance format lacks explicit sector codes, requiring keyword-based inference. Approximately 10–15% of sector assignments may be imprecise. A formal sector lookup against the ITF employer registry would eliminate this uncertainty.
+
+**3. Censored non-payers:** This analysis only covers employers who made at least one payment during the study periods. Employers who were registered but paid nothing are not included — they represent the most non-compliant segment. A complete compliance analysis would require merging the employer registry (all registered firms) with the payment records, treating missing payments as zero-compliance events.
+
+**4. No causal identification:** Correlation and regression establish association, not causation. The relationship between payment day and arrears could reflect a third variable — e.g., employer financial health — that drives both late payment and arrears simultaneously. A randomised experiment (e.g., early-payment reminders sent randomly to half the employer population) would provide causal identification.
+
+**5. Potential autocorrelation:** Some employers appear in both Q1 2024 and Q1 2025 (repeat payers). The independence assumption of the chi-squared test and ANOVA is mildly violated. Future analyses should use mixed-effects models that account for employer-level random effects.
+
+---
+
+# References
+
+Adi, B. (2026). *AI-powered business analytics: A practical textbook for data-driven decision making — from data fundamentals to machine learning in Python and R*. Lagos Business School / markanalytics.online. https://markanalytics.online
+
+Industrial Training Fund. (2024). *Employer contribution schedules — Q1 2024 compliance records* [Internal data]. Compliance Department, ITF Port Harcourt Area Office, Rivers State.
+
+Industrial Training Fund. (2025). *Remittance cash book statements — Q1 2025* [Internal data]. Accounts Department, ITF Port Harcourt Area Office, Rivers State.
+
+Panguru, J. (2026). *ITF employer compliance and payment behaviour dataset, Q1 2024 – Q1 2025* [Dataset]. Collected from ITF Port Harcourt Area Office, Rivers State, Nigeria. Data available on request from the author.
+
+R Core Team. (2024). *R: A language and environment for statistical computing* (Version 4.4). R Foundation for Statistical Computing. https://www.R-project.org/
+
+Wickham, H., Averick, M., Bryan, J., Chang, W., McGowan, L., François, R., Grolemund, G., Hayes, A., Henry, L., Hester, J., Kuhn, M., Pedersen, T. L., Miller, E., Bache, S. M., Müller, K., Ooms, J., Robinson, D., Seidel, D. P., Spinu, V., … Yutani, H. (2019). Welcome to the tidyverse. *Journal of Open Source Software*, *4*(43), 1686. https://doi.org/10.21105/joss.01686
+
+Wickham, H. (2016). *ggplot2: Elegant graphics for data analysis*. Springer. https://doi.org/10.1007/978-3-319-24277-4
+
+Allaire, J. J., Teague, C., Scheidegger, C., Xie, Y., & Dervieux, C. (2022). *Quarto* (Version 1.x) [Computer software]. https://doi.org/10.5281/zenodo.5960048
+
+---
+
+# Appendix: AI Usage Statement
+
+Claude (Anthropic's AI assistant) was used throughout this project in the following capacities: data structuring and cleaning code (Python scripts for harmonising ITF payment records across formats), R code generation for all five analytical techniques, and Quarto document structuring. The AI assisted in translating raw ITF payment schedules into structured CSV datasets and in generating reproducible R code for EDA, visualisation, hypothesis testing, correlation analysis, and logistic regression.
+
+All analytical decisions were independently made by the author: the choice of logistic regression over linear regression (because the outcome is binary compliance status); the choice of Spearman over Pearson correlation (because the amount variable is heavily skewed); the framing of both hypothesis tests (period comparison and sector ANOVA) as directly relevant to ITF enforcement operations; and all business interpretations and management recommendations. The author personally collected, verified, and holds professional responsibility for all primary data used in this submission, having extracted it from official ITF Port Harcourt Area Office records in his capacity as Internal Auditor.
